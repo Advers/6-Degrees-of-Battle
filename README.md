@@ -8,7 +8,9 @@ Events will usually be hosted on Buildstruct the sandbox server.
 ## Folder structure
 
 == Dupes ==
+
 This is where we put all of the files for use with Advanced Duplicator 2.
 
 == Chips ==
+
 This is where to find all of the standalone chips such as the arena generator.
