@@ -1,0 +1,66 @@
+--@name 6DoB - Black Hole
+--@author Adversarius
+--@shared
+
+if SERVER then
+    chip():setPos(Vector())
+    
+    eventHorizon = hologram.create(Vector(),Angle(),"models/xqm/rails/gumball_1.mdl",Vector(40))
+    eventHorizon:setColor(Color(0,0,0))
+    eventHorizon:setMaterial("model_color")
+    
+    hook.add("tick","6DoB - Black Hole Gravitation",function()
+        found = find.byClass("prop_physics")
+        for i,p in pairs(found) do
+            distance2 = p:getMassCenterW():getLengthSqr()
+            if distance2 < 300000 then
+                p:remove()
+            else
+                p:addVelocity(-p:getMassCenterW():getNormalized()*5000000000/distance2)
+            end
+        end
+    end)
+end
+
+if CLIENT then
+    if hasPermission("enablehud") then
+        enableHud(player(),true)
+    end
+    
+    accretionDisk = particle.create(Vector(),true)
+    accretionDisk:setNoDraw(true)
+    
+    quasarBeam = particle.create(Vector(),false)
+    quasarBeam:setNoDraw(true)
+    
+    warpMat = material.load("particle/warp2_warp")
+    diskMat = material.load("effects/combinemuzzle2_nocull")
+    quasarMat = material.load("effects/bluespark")
+    
+    timer.create("Accretion Disk",3/50,0,function()
+        if accretionDisk:getParticlesLeft() > 0 then
+            disk = accretionDisk:add(diskMat,Vector(),math.random(10000,20000),0,0,0,0,15,3)
+            disk:setAngles(Angle(90,0,math.rand(0,360)))
+            disk:setAngleVelocity(Angle(0,0,60))
+            disk:setGravity(Vector(0,0,math.rand(-50,50)))
+        end
+    end)
+    
+    timer.create("Quasar",1/50,0,function()
+        if quasarBeam:getParticlesLeft() > 0 then
+            local updown = math.random(0,1)*2-1
+            beam = quasarBeam:add(quasarMat,Vector(0,0,updown*600),math.random(1000,1500),50,0,5000,255,0,1)
+            beam:setVelocity(Vector(0,0,updown*20))
+        end
+    end)
+    
+    hook.add("postdrawtranslucentrenderables","6DoB - Black Hole Warp Effect",function(depth,skybox,skybox3d)
+        if skybox or skybox3d then return end
+        
+        render.setMaterial(warpMat)
+        render.draw3DSprite(Vector(),5000,5000)
+        
+        accretionDisk:draw()
+        quasarBeam:draw()
+    end)
+end

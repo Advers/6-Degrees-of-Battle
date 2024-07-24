@@ -1,0 +1,86 @@
+--@name 6DoB CrossRunner Starter
+--@author jon b
+--@shared
+
+--------------
+--  Inputs  --
+--------------
+
+--  Stuff you can change
+
+local SpawnOffset = Vector(0,0,20)
+
+local boxinputs = {
+    {35,9,10,Vector(-13,0,0)},
+    {38,20,5,Vector(-13,0,7)},
+    {38,20,5,Vector(-13,0,-7)}
+}
+--the table for defining the shape of the cubes for the hitbox
+--{legnth, width, height, pos offset}
+
+local extrapoints = {
+    --[[ --uncomment this if you'd like a blank vector template to work with
+    {
+        Vector(0,0,0),Vector(0,0,0),Vector(0,0,0),Vector(0,0,0),
+        Vector(0,0,0),Vector(0,0,0),Vector(0,0,0),Vector(0,0,0)
+    }
+    ]]
+    {
+        Vector(5,5,8),Vector(5,-5,8),Vector(56,2,8),Vector(56,-2,8),
+        Vector(5,3,0),Vector(5,-3,0),Vector(56,2,7),Vector(56,-2,7)
+    },
+    
+    {
+        Vector(5,2,-3),Vector(5,-2,-3),Vector(56,1,-7),Vector(56,-1,-7),
+        Vector(5,5,-8),Vector(5,-5,-8),Vector(56,1,-8),Vector(56,-1,-8)
+    }
+
+}
+--a table for defining custom shaped cubes that are more complicated than what is possible with the function
+--these will automatically be added to the creation of the hitbox
+
+
+
+---------------------
+--  Functionality  --
+---------------------
+
+--  do [[NOT]] touch these
+    
+function MakeCubes(tbl)
+    
+    local supercubetbl = {}
+    
+    for i,v in pairs(tbl) do
+        local cubetbl = {
+            {
+                Vector(tbl[i][1]/2,tbl[i][2]/2,tbl[i][3]/2)+tbl[i][4],Vector(-tbl[i][1]/2,tbl[i][2]/2,tbl[i][3]/2)+tbl[i][4],Vector(tbl[i][1]/2,-tbl[i][2]/2,tbl[i][3]/2)+tbl[i][4],Vector(-tbl[i][1]/2,-tbl[i][2]/2,tbl[i][3]/2)+tbl[i][4],
+                Vector(tbl[i][1]/2,tbl[i][2]/2,-tbl[i][3]/2)+tbl[i][4],Vector(-tbl[i][1]/2,tbl[i][2]/2,-tbl[i][3]/2)+tbl[i][4],Vector(tbl[i][1]/2,-tbl[i][2]/2,-tbl[i][3]/2)+tbl[i][4],Vector(-tbl[i][1]/2,-tbl[i][2]/2,-tbl[i][3]/2)+tbl[i][4]
+            }
+        }
+        
+        supercubetbl[i] = cubetbl[1]
+    end
+    
+    table.add(supercubetbl,extrapoints)
+    
+    Hitbox = prop.createCustom(chip():getPos()+SpawnOffset,Angle(0),supercubetbl,true)
+    
+end
+
+
+
+if SERVER then
+    
+    MakeCubes(boxinputs)
+    
+    wire.adjustPorts{ ["P2M"] = "entity" }
+    hook.add("Input", "HandleInput", function(name, value)
+        if value:isValid() then
+            value:setPos(Hitbox:getPos())
+            value:setAngles(Hitbox:getAngles()+Angle(0,-90,0))
+            value:setParent(Hitbox)
+        end
+    end)
+    
+end

@@ -1,0 +1,662 @@
+ --@name 6DoB - Ship Base
+--@author Adversarius, jon b
+--@shared
+
+--[[ VERSION: 0
+
+
+
+
+This chip needs the following permissions to work correctly:
+
+input ; for the driver
+render.calcview ; for camera
+
+--]]
+
+-- Here are your settings:
+if SERVER then
+    spawn_offset = Vector(0,0,200) -- This is where your ship will spawn relative to where you paste the chip
+    
+    control_mode = 1 -- 1, 2, or 3. This is just your default, you can change modes while flying
+    
+    zero_gravity = false -- Set to true if something is already making entities weightless
+else
+    
+end
+
+-- SHIP CUSTOMIZATION
+
+--[[ Reference
+Official 6DoB scale: 1 source unit = 2 meters
+
+--]]
+
+if SERVER then
+    boxinputs = { -- Used for the hitbox "box generator," format is such: L, W, H, Origin[vector]
+        {35,9,10,Vector(-13,0,0)},
+        {38,20,5,Vector(-13,0,7)},
+        {38,20,5,Vector(-13,0,-7)}
+    }
+    extrapoints = {
+        --[[ --uncomment this if you'd like a blank vector template to work with
+        {
+            Vector(0,0,0),Vector(0,0,0),Vector(0,0,0),Vector(0,0,0),
+            Vector(0,0,0),Vector(0,0,0),Vector(0,0,0),Vector(0,0,0)
+        }
+        ]]
+        {
+            Vector(5,5,8),Vector(5,-5,8),Vector(56,2,8),Vector(56,-2,8),
+            Vector(5,3,0),Vector(5,-3,0),Vector(56,2,7),Vector(56,-2,7)
+        },
+        
+        {
+            Vector(5,2,-3),Vector(5,-2,-3),Vector(56,1,-7),Vector(56,-1,-7),
+            Vector(5,5,-8),Vector(5,-5,-8),Vector(56,1,-8),Vector(56,-1,-8)
+        }
+    
+    }
+    --a table for defining custom shaped cubes that are more complicated than what is possible with the function
+    --these will automatically be added to the creation of the hitbox
+    
+    --[[ Turret table
+    
+    Must be structured the following way:
+    {any ID, any parent ID, Vector position, Angle direction, number speed (degrees / second), {number CW traverse limit, number CCW traverse limit} or nil for full traverse},
+    If parented to the ship itself, write "ship"
+    
+    --]]
+    turrets = { 
+        {1,"ship",Vector(),Angle(),360},
+        {2,1,Vector(),Angle(0,0,90),360},
+    }
+    turret_debug = true -- true or false. true makes turrets render instead of being invisible.
+    
+    --[[ Weapon table
+    
+    
+    
+    Common attributes:
+     
+    Name = any, can be shared between weapons, this can help you identify weapons even when tables are collapsed
+    Type = string, can be "laser", "launcher", or "particle". If you write anything else, it is up to you to code in the unique behavior for that weapon type.
+    Parent = must be "ship" or match one of the ID of one of your turrets
+    Position = Vector, in local space to parent
+    Angle = Angle, in local space to parent
+    Damage multiplier = number, flat multiplier to damage
+    
+    Laser attributes:
+    
+    
+    Launcher attributes:
+    Launch_Velocity = number, m/s initial velocity, you really want this to be something at least a LITTLE higher than 0
+    Warhead = unfinished
+    
+    Particle attributes:
+    
+    --]]
+    weapons = {
+        {Name = "Example Weapon"
+            },
+    }
+    weapon_debug = true -- true or false. true makes weapon firing points render instead of being invisible.
+    
+    rotation_rating = 25 -- Multiplies the effectiveness of rotation
+    translation_rating = 10 -- Multiplies the effectiveness of translation
+    engine_rating = 25 -- Multiplies the effectiveness of main engine thrust
+else
+    
+    engineGlow = {material.load("effects/muzzleflash1"),material.load("effects/muzzleflash2"),material.load("effects/muzzleflash3"),material.load("effects/muzzleflash4")}
+    --engineCore = material.load("sprites/physbeama")
+end
+
+-- DO NOT TOUCH STUFF BELOW THIS LINE UNLESS YOU REALLY KNOW WHAT YOU'RE DOING!!
+
+local tickInt = game.getTickInterval
+
+function boolToNum(bool) if bool then return 1 else return 0 end end
+
+changedTable = {}
+function changed(index,variable)
+    if variable == changedTable[index] then return false end
+    changedTable[index] = variable
+    return true
+end
+changeTable = {
+    shipVelocity = Vector()
+    }
+function change(index,variable)
+    local difference = 0
+    if changeTable[index] ~= nil then
+        difference = (variable - changeTable[index])
+    end
+    changeTable[index] = variable
+    return difference
+end
+
+if SERVER then
+    function MakeCubes(tbl)
+        local supercubetbl = {}
+        for i,v in pairs(tbl) do
+            local cubetbl = {
+                    Vector(tbl[i][1]/2,tbl[i][2]/2,tbl[i][3]/2)+tbl[i][4],Vector(-tbl[i][1]/2,tbl[i][2]/2,tbl[i][3]/2)+tbl[i][4],Vector(tbl[i][1]/2,-tbl[i][2]/2,tbl[i][3]/2)+tbl[i][4],Vector(-tbl[i][1]/2,-tbl[i][2]/2,tbl[i][3]/2)+tbl[i][4],
+                    Vector(tbl[i][1]/2,tbl[i][2]/2,-tbl[i][3]/2)+tbl[i][4],Vector(-tbl[i][1]/2,tbl[i][2]/2,-tbl[i][3]/2)+tbl[i][4],Vector(tbl[i][1]/2,-tbl[i][2]/2,-tbl[i][3]/2)+tbl[i][4],Vector(-tbl[i][1]/2,-tbl[i][2]/2,-tbl[i][3]/2)+tbl[i][4]
+            }
+            
+            supercubetbl[i] = cubetbl
+        end
+        
+        return supercubetbl
+    end
+    
+    for i,tab in pairs(extrapoints) do
+        local _,findTbl = mesh.findConvexHull(tab)
+        extrapoints[i] = findTbl
+    end
+    
+    -- Create the ship hitbox
+    local hitbox = table.add(MakeCubes(boxinputs),extrapoints)
+    shipBase = prop.createCustom(chip():getPos()+spawn_offset,Angle(),hitbox)
+    shipBase:enableDrag(false)
+    shipBase:enableGravity(zero_gravity)
+    shipBase:setCollisionGroup(COLLISION_GROUP.WEAPON)
+    shipBasePhysObj = shipBase:getPhysicsObject()
+    
+    -- Set ship's inertia
+    shipBase:setMass(shipBasePhysObj:getVolume()*0.001)
+    local obbSize = shipBase:obbSize()
+    shipBase:setInertia(obbSize:getLength()/obbSize)
+    
+    spawn_offset = nil
+    
+    -- Initialize table of attachments
+    attachments = {
+        ship = shipBase
+    }
+    
+    -- Create the turrets
+    local draw = not turret_debug
+    for i,tab in ipairs(turrets) do
+        local parent = attachments[tab[2]]
+        
+        local base = hologram.create(parent:localToWorld(tab[3]),parent:localToWorldAngles(tab[4]),"models/hunter/plates/plate025x025.mdl")
+        local turret = hologram.create(base:getPos(),base:getAngles(),"models/editor/spot_cone.mdl")
+        
+        base:setParent(parent)
+        turret:setParent(base)
+        
+        base:setNoDraw(draw)
+        turret:setNoDraw(draw)
+        
+        attachments[tab[1]] = turret
+        turrets[i] = {tab[1],base,turret,tab[5],tab[6]}
+    end
+    
+    seat = prop.createSeat(chip():getPos(),Angle(),"models/props_phx/carseat.mdl",true)
+    
+    hook.add("ClientInitialized","6DoB - Client Initialized",function(ply)
+        net.start("6DoB - Send Ents to Client")
+        net.writeEntity(shipBase)
+        net.writeEntity(seat)
+        net.send(ply)
+    end)
+    
+    -- DEFAULTS
+    
+    AIM = Vector(1,0,0)
+    ROTATE = Vector()
+    TRANSLATE = Vector()
+    THROTTLE = 0
+    
+    -- THE HOOKS
+    
+    net.receive("6DoB - Send Controls",function()
+        if net.readBool() then -- MOVEMENT SWITCHING
+            control_mode = net.readUInt(2)
+            printHud(driver,"Switched to control type ",control_mode)
+        end
+        
+        Q = net.readBool()
+        E = net.readBool()
+        W = net.readBool()
+        A = net.readBool()
+        S = net.readBool()
+        D = net.readBool()
+        
+        U = net.readBool()
+        O = net.readBool()
+        I = net.readBool()
+        J = net.readBool()
+        K = net.readBool()
+        L = net.readBool()
+        
+        LSHIFT = net.readBool()
+        LCONTROL = net.readBool()
+        
+        Z = net.readBool()
+        X = net.readBool()
+    end)
+    
+    net.receive("6DoB - Driver Aim",function()
+        AIM = Vector(net.readFloat(),net.readFloat(),net.readFloat())
+    end)
+    
+    wire.adjustPorts{ ["P2M"] = "entity" }
+    hook.add("Input", "HandleInput", function(name, value)
+        if value:isValid() then
+            value:setPos(shipBase:getPos())
+            value:setAngles(shipBase:getAngles()+Angle(0,-90,0))
+            value:setParent(shipBase)
+        end
+    end)
+    
+    function doShipStuff()
+        driver = seat:getDriver()
+        
+        -- CONTROLS
+        
+        if isValid(driver) then
+            seat:setPos(shipBase:getPos())
+            
+            local rotationDamping = (-shipBasePhysObj:getAngleVelocity()*shipBasePhysObj:getInertia())*0.05
+            
+            if control_mode == 1 then
+                ROTATE = Vector(boolToNum(E)-boolToNum(Q),boolToNum(W)-boolToNum(S),boolToNum(A)-boolToNum(D))
+                if ROTATE:isZero() and not shipBasePhysObj:getAngleVelocity():isZero() then
+                    ROTATE = rotationDamping
+                end
+                
+                TRANSLATE = Vector(boolToNum(U)-boolToNum(O),boolToNum(J)-boolToNum(L),boolToNum(I)-boolToNum(K))
+                if TRANSLATE:isZero() and not (shipBasePhysObj:getLocalVelocity()-Vector(THROTTLE,0,0)):isZero() then
+                    TRANSLATE = -shipBasePhysObj:getLocalVelocity()
+                    for i,c in pairs(TRANSLATE) do
+                        TRANSLATE[i] = math.clamp(c,-1,1)
+                    end
+                    TRANSLATE:add(Vector(THROTTLE,0,0))
+                end
+            elseif control_mode == 2 then
+                ROTATE = shipBase:worldToLocalAngles(AIM:getAngle()):getQuaternion():getRotationVector()*shipBasePhysObj:getInertia()*0.2+rotationDamping
+                if E or Q then
+                    ROTATE:setX(boolToNum(E)-boolToNum(Q))
+                else
+                    ROTATE:setX(rotationDamping[1])
+                end
+                
+                TRANSLATE = Vector(boolToNum(U)-boolToNum(O),boolToNum(J)-boolToNum(L),boolToNum(I)-boolToNum(K))
+                if TRANSLATE:isZero() and not (shipBasePhysObj:getLocalVelocity()-Vector(THROTTLE,0,0)):isZero() then
+                    TRANSLATE = -shipBasePhysObj:getLocalVelocity()
+                    for i,c in pairs(TRANSLATE) do
+                        TRANSLATE[i] = math.clamp(c,-1,1)
+                    end
+                    TRANSLATE:add(Vector(THROTTLE,0,0))
+                end
+            elseif control_mode == 3 then
+                
+            end
+            
+            for i,c in pairs(ROTATE) do
+                ROTATE[i] = math.clamp(c,-1,1)
+            end
+            
+            if LSHIFT then
+                THROTTLE = math.min(THROTTLE+tickInt(),1)
+            elseif LCONTROL then
+                THROTTLE = math.max(THROTTLE-tickInt(),0)
+            end
+            if Z then
+                THROTTLE = 1
+            elseif X then
+                THROTTLE = 0
+            end
+        else
+            ROTATE:setZero()
+        end
+        
+        -- MOVEMENT
+        
+        mainEngineThrustDirection = shipBase:getForward()*THROTTLE*engine_rating
+        translation = shipBasePhysObj:localToWorldVector(TRANSLATE)*translation_rating
+        rotation = shipBasePhysObj:localToWorldVector(ROTATE)*rotation_rating
+        
+        shipBasePhysObj:applyForceCenter(mainEngineThrustDirection+translation)
+        shipBasePhysObj:applyTorque(rotation)
+        
+        -- TURRETS
+        
+        for i,tab in pairs(turrets) do
+            local desiredAngle = tab[2]:worldToLocalAngles(AIM:getAngle())[2]
+            local currentAngle = tab[2]:worldToLocalAngles(tab[3]:getAngles())[2]
+            
+            local newAngle = 0
+            if tab[5] then
+                newAngle = math.approach(currentAngle,math.clamp(desiredAngle,tab[5][1],tab[5][2]),tab[4]*tickInt())
+            else
+                newAngle = math.approachAngle(currentAngle,desiredAngle,tab[4]*tickInt())
+            end
+            
+            tab[3]:setAngles(tab[2]:localToWorldAngles(Angle(0,newAngle,0)))
+        end
+        
+        -- UPDATE CLIENT
+        
+        net.start("6DoB - Update Client")
+        net.writeFloat(THROTTLE)
+        net.send()
+    end
+    
+    hook.add("tick","6DoB - Ship",doShipStuff)
+    
+    hook.add("PlayerEnteredVehicle","6DoB - Enter Seat",function(ply,vehicle)
+        if vehicle == seat then
+            enableHud(ply,true)
+            
+            seat:setNoDraw(true)
+            seat:setSolid(false)
+            
+            if hasPermission("entities.setRenderProperty",ply) then
+                ply:setNoDraw(true)
+            end
+            
+            net.start("6DoB - Disable Fog")
+            net.send(ply)
+        end
+    end)
+    
+    hook.add("PlayerLeaveVehicle","6DoB - Exit Seat",function(ply,vehicle)
+        if vehicle == seat then
+            seat:setPos(chip():getPos())
+            
+            seat:setNoDraw(false)
+            seat:setSolid(true)
+            
+            net.start("6DoB - Restore Fog")
+            net.send(ply)
+        end
+    end)
+end
+
+if CLIENT then
+    function keyTapped(key,specialIndex)
+        if not specialIndex then
+            specialIndex = key
+        end
+        return changed(specialIndex,input.isKeyDown(key)) and input.isKeyDown(key)
+    end
+    
+    if hasPermission("enablehud") then
+        enableHud(player(),true)
+    end
+    
+    checkKeys = {"KEY1","KEY2","KEY3", "Q","E","W","A","S","D", "U","O","I","J","K","L", "LSHIFT","LCONTROL", "Z","X",}
+    
+    engineParticles = particle.create(Vector(),false)
+    engineTail = {}
+    
+    -- DEFAULTS
+    
+    cameraSwap = 1
+    
+    THROTTLE = 0
+    
+    -- NET MESSAGES
+    
+    net.receive("6DoB - Update Client",function()
+        THROTTLE = net.readFloat()
+    end)
+
+    net.receive("6DoB - Send Ents to Client",function()
+        shipBase = net.readEntity()
+        seat = net.readEntity()
+    end)
+    
+    net.receive("6DoB - Disable Fog",function()
+        hook.add("setupworldfog","6DoB - ClearFog1",function()
+            render.setFogMode(MATERIAL_FOG.NONE)
+        end)
+        hook.add("setupskyboxfog","6DoB - ClearFog2",function()
+            render.setFogMode(MATERIAL_FOG.NONE)
+        end)
+    end)
+    net.receive("6DoB - Restore Fog",function()
+        hook.remove("setupworldfog","6DoB - ClearFog1")
+        hook.remove("setupskyboxfog","6DoB - ClearFog2")
+    end)
+    
+    hook.add("tick","6DoB - Ship Client",function()
+        
+        -- CONTROLS
+        
+        if isValid(seat) then
+            driver = seat:getDriver()
+            isDriver = player()==driver
+        end
+        
+        if render.isHUDActive() and changed("justSat",isDriver) and isDriver and input.canLockControls() then
+            input.lockControls(true)
+        end
+        
+        if changed("controllocked",input.isControlLocked()) and not input.isControlLocked() and isDriver then
+            printHud("Controls unlocked! Press CTRL to re-lock")
+        end
+        
+        if not input.isControlLocked() and isDriver and keyTapped(KEY.CTRL,80085) then
+            if input.canLockControls() then
+                input.lockControls(true)
+            elseif not input.isControlLocked() then
+                printHud("Can't lock controls")
+            end
+        end
+        
+        if isDriver and input.isControlLocked() then
+            for i,k in pairs(checkKeys) do
+                if changed(k,input.isKeyDown(KEY[k])) then
+                    net.start("6DoB - Send Controls")
+                    local movementSwitch = keyTapped(KEY.KEY1) or keyTapped(KEY.KEY2) or keyTapped(KEY.KEY3)
+                    net.writeBool(movementSwitch)
+                    if movementSwitch then
+                        if input.isKeyDown(KEY.KEY1) then
+                            net.writeUInt(1,2)
+                        elseif input.isKeyDown(KEY.KEY2) then
+                            net.writeUInt(2,2)
+                        elseif input.isKeyDown(KEY.KEY3) then
+                            net.writeUInt(3,2)
+                        end
+                    end
+                    
+                    net.writeBool(input.isKeyDown(KEY.Q))
+                    net.writeBool(input.isKeyDown(KEY.E))
+                    net.writeBool(input.isKeyDown(KEY.W))
+                    net.writeBool(input.isKeyDown(KEY.A))
+                    net.writeBool(input.isKeyDown(KEY.S))
+                    net.writeBool(input.isKeyDown(KEY.D))
+                    
+                    net.writeBool(input.isKeyDown(KEY.U))
+                    net.writeBool(input.isKeyDown(KEY.O))
+                    net.writeBool(input.isKeyDown(KEY.I))
+                    net.writeBool(input.isKeyDown(KEY.J))
+                    net.writeBool(input.isKeyDown(KEY.K))
+                    net.writeBool(input.isKeyDown(KEY.L))
+                    
+                    net.writeBool(input.isKeyDown(KEY.LSHIFT))
+                    net.writeBool(input.isKeyDown(KEY.LCONTROL))
+                    
+                    net.writeBool(keyTapped(KEY.Z))
+                    net.writeBool(keyTapped(KEY.X))
+                    
+                    net.send(nil,true)
+                    break
+                end
+            end
+            
+            if changed("AIM",render.getEyeVector()) then
+                net.start("6DoB - Driver Aim")
+                net.writeFloat(render.getEyeVector()[1])
+                net.writeFloat(render.getEyeVector()[2])
+                net.writeFloat(render.getEyeVector()[3])
+                net.send(nil,true)
+            end
+            
+            if keyTapped(KEY.C) then
+                cameraMode = not cameraMode
+                if cameraMode then
+                    printHud("Camera: Local")
+                else
+                    printHud("Camera: Global")
+                end
+            end
+        end
+    end)
+    
+    hook.add("think","6DoB - Ship Client Frame",function()
+        
+        -- THRUSTER FX
+        
+        if isValid(shipBase) then
+            currentVelocity = change("shipVelocity",shipBase:getPos())/timer.frametime()
+            local engineVelocity = currentVelocity-shipBase:getForward()*1024
+            
+            if THROTTLE~=0 and engineParticles:getParticlesLeft()>0 then
+                local part = engineParticles:add(table.random(engineGlow),shipBase:localToWorld(Vector(-30,0,0)),4,64,0,0,255*THROTTLE,0,0.2)
+                part:setRoll(math.rand(-180,180))
+                part:setRollDelta(math.rand(-2,2))
+                part:setVelocity(engineVelocity)
+                
+                --table.insert(engineTail,1,{part,timer.realtime(),THROTTLE})
+            end
+            
+            --for i,tab in pairs(engineTail) do
+                --if not changed(tab[1],tab[1]:getPos()) then
+                    --changedTable[tab[1]] = nil
+               --     engineTail[i] = nil
+             --   end
+            --end
+        end
+    end)
+    
+    hook.add("calcview","6DoB - Calcview",function()
+        if isValid(shipBase) and isDriver then
+            -- CAMERA SWITCH
+            
+            if changed("cameraMode",cameraMode) then
+                cameraSwap = 0
+            elseif cameraSwap~=1 then
+                cameraSwap = math.min(cameraSwap+timer.frametime()*0.5,1)
+            end
+            
+            if cameraSwap==1 then
+                if cameraMode then
+                    vAngles = (shipBase:getQuaternion()*eyeAngles():getQuaternion()):getEulerAngle()
+                else
+                    vAngles = eyeAngles()
+                end
+            else
+                if cameraMode then
+                    newCamera = (shipBase:getQuaternion()*eyeAngles():getQuaternion()):getEulerAngle()
+                else
+                    newCamera = eyeAngles()
+                end
+                vAngles = math.lerpAngle(cameraSwap,last_vAngles,newCamera)
+            end
+            
+            last_vAngles = vAngles
+            vOrigin = shipBase:getPos()+Vector(-200,0,0):getRotated(vAngles)
+            
+            local view = {
+                origin = vOrigin,
+                angles = vAngles,
+                drawviewer = false,
+                fov = 90,
+            }
+            
+            return view
+        end
+    end)
+    
+    Upball = hologram.create(Vector(),Angle(),"models/props_phx/construct/glass/glass_dome360.mdl",Vector(0.06))
+    Upball:setColor(Color(0,255,255))
+    Upball:setMaterial("hunter/myplastic")
+    Upball:setNoDraw(true)
+    Upball:suppressEngineLighting(true)
+    
+    Downball = hologram.create(Vector(),Upball:localToWorldAngles(Angle(180,0,0)),"models/props_phx/construct/glass/glass_dome360.mdl",Vector(0.06))
+    Downball:setColor(Color(255,0,255))
+    Downball:setMaterial("hunter/myplastic")
+    Downball:setNoDraw(true)
+    Downball:suppressEngineLighting(true)
+    
+    hook.add("predrawviewmodels","6DoB - Draw 3D Hud Elements",function()
+        
+        if isDriver then
+            
+            local ballPos = render.getEyePos()+Vector(20,-20,-10):getRotated(render.getAngles())
+            
+            Upball:setPos(ballPos)
+            Upball:draw(false)
+            
+            Downball:setPos(ballPos)
+            Downball:draw(false)
+            
+        end
+        
+    end)
+    
+    hook.add("postdrawhud", "6DoB - Draw 2D Hud Elements",function()
+        
+        if isDriver then
+            
+            local ScrW, ScrH = render.getGameResolution()
+            local BallPos = Upball:getPos():toScreen()
+            local BallX = BallPos.x
+            local BallY = BallPos.y
+            
+            render.setColor(Color(40,40,40))
+            render.drawRect(BallX-250,BallY-150,60,300)
+            render.setColor(Color(100,120,150))
+            render.drawRect(BallX-250,BallY+140-(280*THROTTLE),60,5)
+            render.drawPoly({
+                {x = BallX-270, y = BallY+152.5-(280*THROTTLE)},
+                {x = BallX-270, y = BallY+132.5-(280*THROTTLE)},
+                {x = BallX-250, y = BallY+142.5-(280*THROTTLE)}
+            })
+            render.drawPoly({
+                {x = BallX-190, y = BallY+142.5-(280*THROTTLE)},
+                {x = BallX-170, y = BallY+132.5-(280*THROTTLE)},
+                {x = BallX-170, y = BallY+152.5-(280*THROTTLE)}
+            })
+            render.setColor(Color(100,100,100))
+            render.drawRect(BallX-250,BallY-140,60,3)
+            render.drawRect(BallX-240,BallY-105,40,3)
+            render.drawRect(BallX-240,BallY-70,40,3)
+            render.drawRect(BallX-240,BallY-35,40,3)
+            render.drawRect(BallX-250,BallY,60,3)
+            render.drawRect(BallX-240,BallY+35,40,3)
+            render.drawRect(BallX-240,BallY+70,40,3)
+            render.drawRect(BallX-240,BallY+105,40,3)
+            render.drawRect(BallX-250,BallY+140,60,3)
+            render.setColor(Color(0,0,0,200))
+            render.drawRect(BallX-255,BallY-185,70,30)
+            render.setColor(Color(255,255,255))
+            render.drawText(BallX-220,BallY-180,"Throttle: "..math.round(THROTTLE*100),TEXT_ALIGN.CENTER)
+            
+        end
+        
+    end)
+    --[[
+    hook.add("postdrawtranslucentrenderables","6DoB - postdrawtranslucentrenderables",function(depth,skybox,skybox3d)
+        if skybox or skybox3d then return end
+
+        if isValid(shipBase) then
+            render.setMaterial(engineCore)
+            if THROTTLE>0 then
+                render.start3DBeam(#engineTail+1)
+                render.add3DBeam(shipBase:localToWorld(Vector(-30,0,0)),2,timer.realtime(),Color(255,255,255,255*THROTTLE))
+            else
+                render.start3DBeam(#engineTail)
+            end
+            for i,tab in ipairs(engineTail) do
+                render.add3DBeam(tab[1]:getPos(),(timer.realtime()-tab[2])*256+2,tab[2],Color(255,255,255,(1-i/#engineTail)*255*tab[3]))
+            end
+            render.end3DBeam()
+        end
+    end)]]
+end
