@@ -65,7 +65,7 @@ if SERVER then
         local mass = math.random(100000000,1000000000)
         
         local holo = hologram.create(Vector(math.sqrt(math.random())*ArenaRadius,0,0):getRotated(Angle(math.rand(-90,90),math.rand(-180,180),0))+ArenaOffset,Angle(math.random(-180,180)),"models/XQM/Rails/gumball_1.mdl",Vector(mass)/100000000)
-        holo:setColor(Color(255,0,0))
+        holo:setColor(Color(math.random(50,255),math.random(50,255),math.random(50,255)))
         
         Planets[I] = {holo,holo:getPos(),mass}
         
